@@ -673,7 +673,6 @@ version = "0.1.0"
 dependencies = [
  "datafusion",
  "differential-dataflow",
- "rand",
  "timely",
  "tokio",
 ]

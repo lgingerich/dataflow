@@ -1,13 +1,11 @@
-/// SQL integration module for DataFusion
+/// SQL integration module
 /// 
-/// This module provides a clean interface to DataFusion for parsing SQL,
-/// analyzing queries, and translating them to Differential Dataflow.
+/// Provides translation from DataFusion LogicalPlan to Differential Dataflow.
+/// Users interact with DataFusion directly for SQL parsing.
 
-pub mod query;
 pub mod row;
 pub mod translator;
 
 // Re-export commonly used types
-pub use query::{QueryAnalyzer, QueryInfo};
 pub use row::Row;
 pub use translator::describe_translation;

@@ -1,52 +1,62 @@
 use datafusion::logical_expr::LogicalPlan;
+use differential_dataflow::collection::VecCollection;
+use timely::dataflow::Scope;
+use std::collections::HashMap;
+use crate::sql::{Row, expr::compile_expr};
 
-/// Translates DataFusion LogicalPlan to differential dataflow operators
+/// Translate a DataFusion LogicalPlan to a Differential Dataflow Collection
 /// 
-/// This module provides translation from SQL logical plans to
-/// differential dataflow computation graphs.
-
-/// Operator type labels for describing the translation
-#[derive(Debug, Clone)]
-pub enum OperatorType {
-    Input,
-    Map,
-    Filter,
-    Reduce,
-    Join,
-    Sort,
-}
-
-/// Describe what operators would be created from a LogicalPlan
+/// This is the main entry point for translation. It recursively walks the
+/// LogicalPlan tree and builds a Differential Dataflow computation graph.
 /// 
-/// This walks the plan tree and returns a human-readable description
-/// of the operator chain that would be built.
-pub fn describe_translation(plan: &LogicalPlan) -> Result<String, String> {
-    let chain = describe_operator_chain(plan, 0)?;
-    Ok(format!("Operator chain:\n{}", chain.join("\n")))
-}
-
-fn describe_operator_chain(plan: &LogicalPlan, depth: usize) -> Result<Vec<String>, String> {
-    let mut chain = Vec::new();
-    let indent = "  ".repeat(depth);
-    
-    let op_type = match plan {
-        LogicalPlan::TableScan(_) => OperatorType::Input,
-        LogicalPlan::Projection(_) => OperatorType::Map,
-        LogicalPlan::Filter(_) => OperatorType::Filter,
-        LogicalPlan::Aggregate(_) => OperatorType::Reduce,
-        LogicalPlan::Join(_) => OperatorType::Join,
-        LogicalPlan::Sort(_) => OperatorType::Sort,
-        _ => return Err(format!("Unsupported logical plan operator: {:?}", plan)),
-    };
-    
-    chain.push(format!("{}{:?}", indent, op_type));
-    
-    // Recursively describe inputs
-    for input in plan.inputs() {
-        let mut input_chain = describe_operator_chain(input, depth + 1)?;
-        chain.append(&mut input_chain);
+/// # Arguments
+/// * `plan` - The DataFusion logical plan to translate
+/// * `scope` - The Timely dataflow scope to build the graph in
+/// * `tables` - Map of table names to their input Collections (provided by user)
+/// 
+/// # Returns
+/// A Collection representing the query result
+pub fn translate_query<G: Scope<Timestamp = usize>>(
+    plan: &LogicalPlan,
+    scope: &G,
+    tables: &HashMap<String, VecCollection<G, Row, isize>>,
+) -> Result<VecCollection<G, Row, isize>, String> {
+    match plan {
+        // TableScan: lookup the table in the provided HashMap
+        LogicalPlan::TableScan(scan) => {
+            let table_name = scan.table_name.to_string();
+            tables
+                .get(&table_name)
+                .cloned()
+                .ok_or_else(|| format!("Table '{}' not found in provided tables", table_name))
+        }
+        
+        // Projection: compile expressions and map each row
+        LogicalPlan::Projection(proj) => {
+            // Recursively translate the input
+            let input_collection = translate_query(&proj.input, scope, tables)?;
+            let input_schema = proj.input.schema();
+            
+            // Compile all projection expressions
+            let compiled_exprs: Result<Vec<_>, _> = proj
+                .expr
+                .iter()
+                .map(|e| compile_expr(e, input_schema))
+                .collect();
+            let compiled_exprs = compiled_exprs?;
+            
+            // Map: evaluate each expression on the row
+            Ok(input_collection.map(move |row| {
+                let values: Vec<_> = compiled_exprs
+                    .iter()
+                    .map(|f| f(&row))
+                    .collect();
+                Row::new(values)
+            }))
+        }
+        
+        _ => Err(format!("Unsupported logical plan operator: {:?}", plan)),
     }
-    
-    Ok(chain)
 }
+
 

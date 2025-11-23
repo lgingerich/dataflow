@@ -1,5 +1,4 @@
 use datafusion::prelude::*;
-use dataflow::sql::describe_translation;
 
 /// Example: Simple projection with arithmetic expressions
 /// 
@@ -38,13 +37,6 @@ async fn main() -> datafusion::error::Result<()> {
     println!("\nOutput Schema:");
     for field in logical_plan.schema().fields() {
         println!("  {}: {:?}", field.name(), field.data_type());
-    }
-
-    // Translate to dataflow operators
-    println!("\n=== Translation to Dataflow ===");
-    match describe_translation(logical_plan) {
-        Ok(description) => println!("{}", description),
-        Err(e) => println!("Translation error: {}", e),
     }
 
     Ok(())

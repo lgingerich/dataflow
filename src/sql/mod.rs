@@ -4,8 +4,9 @@
 /// Users interact with DataFusion directly for SQL parsing.
 
 pub mod row;
+pub mod expr;
 pub mod translator;
 
 // Re-export commonly used types
 pub use row::Row;
-pub use translator::describe_translation;
+pub use translator::translate_query;

@@ -807,6 +807,8 @@ dependencies = [
  "criterion",
  "datafusion",
  "differential-dataflow",
+ "serde",
+ "serde_json",
  "thiserror",
  "timely",
  "tokio",

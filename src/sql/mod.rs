@@ -1,10 +1,10 @@
-/// SQL integration module
-/// 
-/// Provides translation from DataFusion LogicalPlan to Differential Dataflow.
-/// Users interact with DataFusion directly for SQL parsing.
+//! SQL integration module
+//!
+//! Provides translation from DataFusion LogicalPlan to Differential Dataflow.
+//! Users interact with DataFusion directly for SQL parsing.
 
-pub mod row;
 pub mod expr;
+pub mod row;
 pub mod translator;
 
 // Re-export commonly used types

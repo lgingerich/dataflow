@@ -2,9 +2,52 @@
 name = "dataflow"
 version = "0.1.0"
 edition = "2024"
+authors = ["Landon Gingerich <landon.ging@gmail.com>"]
+description = "Incremental stream processing engine using Differential Dataflow for SQL queries"
+readme = "README.md"
+repository = "https://github.com/lgingerich/dataflow"
+
+
+[profile.release]
+codegen-units = 1
+debug = 0
+debug-assertions = false
+incremental = false
+opt-level = 3
+lto = true
+panic = "abort"
+strip = "debuginfo"
+
+[profile.dev]
+codegen-units = 256
+debug = 2
+debug-assertions = true
+incremental = true
+opt-level = 0
+lto = false
+panic = "unwind"
+strip = false
+
 
 [dependencies]
 datafusion = "50.3.0"
 differential-dataflow = "0.18.0"
 timely = "0.25.1"
 tokio = { version = "1.48.0", features = ["rt-multi-thread"] }
+
+[dev-dependencies]
+criterion = "0.8.0"
+
+
+[lints.clippy]
+type_complexity = "allow"
+redundant_clone = "warn"
+unnecessary_to_owned = "warn"
+inefficient_to_string = "warn"
+large_enum_variant = "warn"
+box_collection = "warn"
+or_fun_call = "warn"
+expect_fun_call = "warn"
+single_char_pattern = "warn"
+string_add_assign = "warn"
+vec_init_then_push = "warn"

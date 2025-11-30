@@ -1,11 +1,11 @@
-use datafusion::common::{ScalarValue, DFSchema, Column};
-use datafusion::logical_expr::{Expr, Operator, BinaryExpr};
-use datafusion::arrow::array::Scalar;
-use datafusion::arrow::compute::kernels::{numeric, cmp};
 use crate::sql::Row;
+use datafusion::arrow::array::Scalar;
+use datafusion::arrow::compute::kernels::{cmp, numeric};
+use datafusion::common::{Column, DFSchema, ScalarValue};
+use datafusion::logical_expr::{BinaryExpr, Expr, Operator};
 
 /// Compile a DataFusion expression into a closure that operates on Row
-/// 
+///
 /// This is the "interpreter" that converts DataFusion's AST into executable code.
 /// The closure can be called repeatedly on different rows to evaluate the expression.
 pub fn compile_expr(
@@ -15,25 +15,29 @@ pub fn compile_expr(
     match expr {
         // Column reference: look up by index in schema
         Expr::Column(col) => compile_column(col, schema),
-        
+
         // Literal: return constant value
         Expr::Literal(scalar, _metadata) => Ok(compile_literal(scalar)),
-        
+
         // Binary operation: recursively compile and combine
         Expr::BinaryExpr(bin) => compile_binary(bin, schema),
-        
+
         // Alias: just compile the inner expression
         Expr::Alias(alias) => compile_expr(&alias.expr, schema),
-        
+
         _ => Err(format!("Unsupported expression: {:?}", expr)),
     }
 }
 
 /// Compile a column reference
-fn compile_column(col: &Column, schema: &DFSchema) -> Result<Box<dyn Fn(&Row) -> ScalarValue>, String> {
-    let idx = schema.index_of_column(col)
+fn compile_column(
+    col: &Column,
+    schema: &DFSchema,
+) -> Result<Box<dyn Fn(&Row) -> ScalarValue>, String> {
+    let idx = schema
+        .index_of_column(col)
         .map_err(|e| format!("Column not found: {:?}", e))?;
-    
+
     Ok(Box::new(move |row| {
         row.get(idx).cloned().unwrap_or(ScalarValue::Null)
     }))
@@ -52,8 +56,8 @@ fn compile_binary(
 ) -> Result<Box<dyn Fn(&Row) -> ScalarValue>, String> {
     let left_fn = compile_expr(&bin.left, schema)?;
     let right_fn = compile_expr(&bin.right, schema)?;
-    let op = bin.op.clone();
-    
+    let op = bin.op;
+
     Ok(Box::new(move |row| {
         let l = left_fn(row);
         let r = right_fn(row);
@@ -72,9 +76,9 @@ fn apply_binary_op(op: &Operator, left: ScalarValue, right: ScalarValue) -> Scal
         Ok(arr) => arr,
         Err(e) => panic!("Failed to convert ScalarValue to array: {:?}", e),
     };
-    
+
     // Type checking: require exact type match (no automatic coercion)
-    // 
+    //
     // TODO: Future optimization - use DataFusion's type coercion logic:
     // `datafusion::optimizer::type_coercion` provides SQL-compliant type coercion rules.
     // This would allow queries like `SELECT amount + 10` where amount is Float64 and 10 is Int64.
@@ -87,10 +91,10 @@ fn apply_binary_op(op: &Operator, left: ScalarValue, right: ScalarValue) -> Scal
             right_array.data_type()
         );
     }
-    
+
     let left_scalar = Scalar::new(left_array);
     let right_scalar = Scalar::new(right_array);
-    
+
     // Apply the operation using Arrow's compute kernels
     let result_array = match op {
         // Arithmetic operations
@@ -99,24 +103,30 @@ fn apply_binary_op(op: &Operator, left: ScalarValue, right: ScalarValue) -> Scal
         Operator::Multiply => numeric::mul(&left_scalar, &right_scalar),
         Operator::Divide => numeric::div(&left_scalar, &right_scalar),
         Operator::Modulo => numeric::rem(&left_scalar, &right_scalar),
-        
+
         // Comparison operations (return BooleanArray)
         Operator::Eq => cmp::eq(&left_scalar, &right_scalar).map(|b| std::sync::Arc::new(b) as _),
-        Operator::NotEq => cmp::neq(&left_scalar, &right_scalar).map(|b| std::sync::Arc::new(b) as _),
+        Operator::NotEq => {
+            cmp::neq(&left_scalar, &right_scalar).map(|b| std::sync::Arc::new(b) as _)
+        }
         Operator::Lt => cmp::lt(&left_scalar, &right_scalar).map(|b| std::sync::Arc::new(b) as _),
-        Operator::LtEq => cmp::lt_eq(&left_scalar, &right_scalar).map(|b| std::sync::Arc::new(b) as _),
+        Operator::LtEq => {
+            cmp::lt_eq(&left_scalar, &right_scalar).map(|b| std::sync::Arc::new(b) as _)
+        }
         Operator::Gt => cmp::gt(&left_scalar, &right_scalar).map(|b| std::sync::Arc::new(b) as _),
-        Operator::GtEq => cmp::gt_eq(&left_scalar, &right_scalar).map(|b| std::sync::Arc::new(b) as _),
-        
+        Operator::GtEq => {
+            cmp::gt_eq(&left_scalar, &right_scalar).map(|b| std::sync::Arc::new(b) as _)
+        }
+
         // Logical operations (handle separately as they work on booleans)
         Operator::And | Operator::Or => {
             return apply_logical_op(op, left, right);
         }
-        
+
         // Unsupported operations
         _ => panic!("Unsupported operation: {:?}", op),
     };
-    
+
     // Convert result back to ScalarValue
     match result_array {
         Ok(arr) => ScalarValue::try_from_array(&arr, 0).unwrap_or(ScalarValue::Null),
@@ -125,7 +135,7 @@ fn apply_binary_op(op: &Operator, left: ScalarValue, right: ScalarValue) -> Scal
 }
 
 /// Handle logical operations (AND, OR) separately
-/// 
+///
 /// These operate on booleans and don't go through Arrow's numeric kernels
 fn apply_logical_op(op: &Operator, left: ScalarValue, right: ScalarValue) -> ScalarValue {
     match (op, left, right) {
@@ -157,10 +167,10 @@ mod tests {
         let schema = test_schema();
         let expr = Expr::Literal(ScalarValue::Int64(Some(42)), None);
         let compiled = compile_expr(&expr, &schema).unwrap();
-        
+
         let row = Row::new(vec![]);
         let result = compiled(&row);
-        
+
         assert_eq!(result, ScalarValue::Int64(Some(42)));
     }
 
@@ -169,13 +179,13 @@ mod tests {
         let schema = test_schema();
         let expr = Expr::Column(Column::from_name("amount"));
         let compiled = compile_expr(&expr, &schema).unwrap();
-        
+
         let row = Row::new(vec![
             ScalarValue::Int64(Some(1)),
             ScalarValue::Int64(Some(100)),
         ]);
         let result = compiled(&row);
-        
+
         assert_eq!(result, ScalarValue::Int64(Some(100)));
     }
 
@@ -188,13 +198,13 @@ mod tests {
             Box::new(Expr::Literal(ScalarValue::Int64(Some(10)), None)),
         ));
         let compiled = compile_expr(&expr, &schema).unwrap();
-        
+
         let row = Row::new(vec![
             ScalarValue::Int64(Some(1)),
             ScalarValue::Int64(Some(100)),
         ]);
         let result = compiled(&row);
-        
+
         assert_eq!(result, ScalarValue::Int64(Some(110)));
     }
 
@@ -207,14 +217,13 @@ mod tests {
             Box::new(Expr::Literal(ScalarValue::Int64(Some(50)), None)),
         ));
         let compiled = compile_expr(&expr, &schema).unwrap();
-        
+
         let row = Row::new(vec![
             ScalarValue::Int64(Some(1)),
             ScalarValue::Int64(Some(100)),
         ]);
         let result = compiled(&row);
-        
+
         assert_eq!(result, ScalarValue::Boolean(Some(true)));
     }
 }
-

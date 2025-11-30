@@ -1,7 +1,7 @@
 use datafusion::prelude::*;
 
 /// Example: Simple table scan (no-op query)
-/// 
+///
 /// This demonstrates the basic SQL integration - just reading a table
 /// without any transformations. This is the simplest case.
 #[tokio::main]
@@ -10,7 +10,8 @@ async fn main() -> datafusion::error::Result<()> {
     let ctx = SessionContext::new();
 
     // Register the CSV file as a table
-    ctx.register_csv("orders", "data/orders.csv", CsvReadOptions::new()).await?;
+    ctx.register_csv("orders", "data/orders.csv", CsvReadOptions::new())
+        .await?;
 
     // Parse SQL query
     println!("=== Analyzing simple table scan ===");
@@ -30,4 +31,3 @@ async fn main() -> datafusion::error::Result<()> {
 
     Ok(())
 }
-

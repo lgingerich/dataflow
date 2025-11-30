@@ -62,15 +62,17 @@ impl Ord for Row {
     fn cmp(&self, other: &Self) -> Ordering {
         // Lexicographical comparison of the values vector
         // Note: ScalarValue provides a total ordering even for floats (NaN is treated as greater than all values)
-        // so partial_cmp will always return Some(...). We use expect() as a safety check.
+        // so partial_cmp will always return Some(...).
         self.values
             .iter()
             .zip(&other.values)
-            .map(|(a, b)| {
-                a.partial_cmp(b)
-                    .expect("ScalarValue partial_cmp returned None - this should never happen")
+            .find_map(|(a, b)| {
+                match a.partial_cmp(b) {
+                    Some(Ordering::Equal) => None, // Continue searching
+                    Some(ord) => Some(ord), // Found non-equal ordering
+                    None => Some(Ordering::Equal), // Treat None as equal (should never happen)
+                }
             })
-            .find(|&ord| ord != Ordering::Equal)
             .unwrap_or_else(|| self.values.len().cmp(&other.values.len()))
     }
 }

@@ -14,8 +14,8 @@ pub enum DataflowError {
     #[error("Unsupported expression: {0}")]
     UnsupportedExpression(String),
 
-    /// Type mismatch in binary operation
-    #[error("Type mismatch in binary operation {op:?}: left is {left:?}, right is {right:?}. Use explicit CAST.")]
+    /// Type mismatch in binary operation (explicit CAST required)
+    #[error("Type mismatch in binary operation {op:?}: left is {left:?}, right is {right:?}. Use explicit CAST in SQL.")]
     TypeMismatch {
         op: Operator,
         left: DataType,

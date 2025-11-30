@@ -8,10 +8,12 @@ use datafusion::logical_expr::{BinaryExpr, Expr, Operator};
 ///
 /// This is the "interpreter" that converts DataFusion's AST into executable code.
 /// The closure can be called repeatedly on different rows to evaluate the expression.
+/// 
+/// Returns a closure that returns Result to allow proper error propagation during evaluation.
 pub fn compile_expr(
     expr: &Expr,
     schema: &DFSchema,
-) -> Result<Box<dyn Fn(&Row) -> ScalarValue>, DataflowError> {
+) -> Result<Box<dyn Fn(&Row) -> Result<ScalarValue, DataflowError>>, DataflowError> {
     match expr {
         // Column reference: look up by index in schema
         Expr::Column(col) => compile_column(col, schema),
@@ -33,37 +35,39 @@ pub fn compile_expr(
 fn compile_column(
     col: &Column,
     schema: &DFSchema,
-) -> Result<Box<dyn Fn(&Row) -> ScalarValue>, DataflowError> {
+) -> Result<Box<dyn Fn(&Row) -> Result<ScalarValue, DataflowError>>, DataflowError> {
     let idx = schema.index_of_column(col).map_err(|e| {
         DataflowError::ColumnNotFound(format!("{:?}", e))
     })?;
 
     Ok(Box::new(move |row| {
-        row.get(idx).cloned().unwrap_or(ScalarValue::Null)
+        row.get(idx)
+            .cloned()
+            .ok_or_else(|| DataflowError::ColumnNotFound(
+                format!("Row index {} out of bounds (row has {} columns)", idx, row.len())
+            ))
     }))
 }
 
 /// Compile a literal value
-fn compile_literal(scalar: &ScalarValue) -> Box<dyn Fn(&Row) -> ScalarValue> {
+fn compile_literal(scalar: &ScalarValue) -> Box<dyn Fn(&Row) -> Result<ScalarValue, DataflowError>> {
     let val = scalar.clone();
-    Box::new(move |_row| val.clone())
+    Box::new(move |_row| Ok(val.clone()))
 }
 
 /// Compile a binary expression (arithmetic or comparison)
 fn compile_binary(
     bin: &BinaryExpr,
     schema: &DFSchema,
-) -> Result<Box<dyn Fn(&Row) -> ScalarValue>, DataflowError> {
+) -> Result<Box<dyn Fn(&Row) -> Result<ScalarValue, DataflowError>>, DataflowError> {
     let left_fn = compile_expr(&bin.left, schema)?;
     let right_fn = compile_expr(&bin.right, schema)?;
     let op = bin.op;
 
     Ok(Box::new(move |row| {
-        let l = left_fn(row);
-        let r = right_fn(row);
-        // Handle errors gracefully by returning Null
-        // In a production system, you might want to log these errors
-        apply_binary_op(&op, l, r).unwrap_or(ScalarValue::Null)
+        let l = left_fn(row)?;
+        let r = right_fn(row)?;
+        apply_binary_op(&op, l, r)
     }))
 }
 
@@ -81,12 +85,8 @@ fn apply_binary_op(
         DataflowError::ScalarToArrayConversion(format!("{:?}", e))
     })?;
 
-    // Type checking: require exact type match (no automatic coercion)
-    //
-    // TODO: Future optimization - use DataFusion's type coercion logic:
-    // `datafusion::optimizer::type_coercion` provides SQL-compliant type coercion rules.
-    // This would allow queries like `SELECT amount + 10` where amount is Float64 and 10 is Int64.
-    // For now, we require explicit CAST in SQL: `SELECT amount + CAST(10 AS DOUBLE)`
+    // Require exact type match (i.e. no automatic coercion)
+    // TODO: Implement automatic type coercion
     if left_array.data_type() != right_array.data_type() {
         return Err(DataflowError::TypeMismatch {
             op: *op,
@@ -132,7 +132,12 @@ fn apply_binary_op(
 
     // Convert result back to ScalarValue
     let arr = result_array.map_err(|e| DataflowError::ArrowComputeError(format!("{:?}", e)))?;
-    Ok(ScalarValue::try_from_array(&arr, 0).unwrap_or(ScalarValue::Null))
+    ScalarValue::try_from_array(&arr, 0).map_err(|e| {
+        DataflowError::ArrayToScalarConversion(format!(
+            "Failed to convert result array to ScalarValue at index 0: {:?}",
+            e
+        ))
+    })
 }
 
 /// Handle logical operations (AND, OR) separately
@@ -174,7 +179,7 @@ mod tests {
         let compiled = compile_expr(&expr, &schema).unwrap();
 
         let row = Row::new(vec![]);
-        let result = compiled(&row);
+        let result = compiled(&row).unwrap();
 
         assert_eq!(result, ScalarValue::Int64(Some(42)));
     }
@@ -189,7 +194,7 @@ mod tests {
             ScalarValue::Int64(Some(1)),
             ScalarValue::Int64(Some(100)),
         ]);
-        let result = compiled(&row);
+        let result = compiled(&row).unwrap();
 
         assert_eq!(result, ScalarValue::Int64(Some(100)));
     }
@@ -208,7 +213,7 @@ mod tests {
             ScalarValue::Int64(Some(1)),
             ScalarValue::Int64(Some(100)),
         ]);
-        let result = compiled(&row);
+        let result = compiled(&row).unwrap();
 
         assert_eq!(result, ScalarValue::Int64(Some(110)));
     }
@@ -227,8 +232,45 @@ mod tests {
             ScalarValue::Int64(Some(1)),
             ScalarValue::Int64(Some(100)),
         ]);
-        let result = compiled(&row);
+        let result = compiled(&row).unwrap();
 
         assert_eq!(result, ScalarValue::Boolean(Some(true)));
+    }
+
+    #[test]
+    fn test_type_mismatch_error() {
+        let schema = test_schema();
+        // Try to add Int64 and Float64 - should error due to type mismatch
+        let expr = Expr::BinaryExpr(BinaryExpr::new(
+            Box::new(Expr::Column(Column::from_name("amount"))),
+            Operator::Plus,
+            Box::new(Expr::Literal(ScalarValue::Float64(Some(10.5)), None)),
+        ));
+        let compiled = compile_expr(&expr, &schema).unwrap();
+
+        let row = Row::new(vec![
+            ScalarValue::Int64(Some(1)),
+            ScalarValue::Int64(Some(100)),
+        ]);
+        
+        // Should return an error, not NULL
+        let result = compiled(&row);
+        assert!(result.is_err());
+        assert!(matches!(result, Err(DataflowError::TypeMismatch { .. })));
+    }
+
+    #[test]
+    fn test_column_out_of_bounds_error() {
+        let schema = test_schema();
+        let expr = Expr::Column(Column::from_name("amount"));
+        let compiled = compile_expr(&expr, &schema).unwrap();
+
+        // Row has only 1 column, but we're trying to access column index 1 (amount)
+        let row = Row::new(vec![ScalarValue::Int64(Some(1))]);
+        
+        // Should return an error, not NULL
+        let result = compiled(&row);
+        assert!(result.is_err());
+        assert!(matches!(result, Err(DataflowError::ColumnNotFound(_))));
     }
 }

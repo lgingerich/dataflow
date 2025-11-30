@@ -47,8 +47,19 @@ pub fn translate_query<G: Scope<Timestamp = usize>>(
             let compiled_exprs = compiled_exprs?;
 
             // Map: evaluate each expression on the row
+            // SQL semantics: runtime evaluation errors produce NULL values
             Ok(input_collection.map(move |row| {
-                let values: Vec<_> = compiled_exprs.iter().map(|f| f(&row)).collect();
+                let values: Vec<_> = compiled_exprs
+                    .iter()
+                    .map(|f| match f(&row) {
+                        Ok(val) => val,
+                        Err(_err) => {
+                            // In SQL, runtime errors in expression evaluation typically produce NULL
+                            // Future enhancement: Add logging/tracing here for debugging
+                            ScalarValue::Null
+                        }
+                    })
+                    .collect();
                 Row::new(values)
             }))
         }
@@ -63,12 +74,14 @@ pub fn translate_query<G: Scope<Timestamp = usize>>(
             let predicate_fn = compile_expr(&filter.predicate, input_schema)?;
             
             // Apply filter: keep rows where predicate evaluates to true
+            // Errors and non-boolean results are treated as false (filter out)
             Ok(input_collection.filter(move |row| {
                 match predicate_fn(row) {
-                    ScalarValue::Boolean(Some(true)) => true,  // Keep row
-                    ScalarValue::Boolean(Some(false)) => false, // Filter out
-                    ScalarValue::Boolean(None) => false,       // NULL = false in SQL
-                    _ => false, // Non-boolean result = error, filter out
+                    Ok(ScalarValue::Boolean(Some(true))) => true,  // Keep row
+                    Ok(ScalarValue::Boolean(Some(false))) => false, // Filter out
+                    Ok(ScalarValue::Boolean(None)) => false,       // NULL = false in SQL
+                    Ok(_) => false, // Non-boolean result = filter out
+                    Err(_) => false, // Error during evaluation = filter out
                 }
             }))
         }

@@ -110,31 +110,16 @@ pub fn translate_query<G: Scope<Timestamp = usize>>(
                 extract_join_keys(&join.on, &join.filter, left_schema, right_schema)?;
 
             // Map left collection to (key, row) pairs
-            // Use String representation of key values for ExchangeData compatibility
+            let left_indices = left_key_indices;
             let left_keyed = left_collection.map(move |row| {
-                let key_parts: Vec<String> = left_key_indices
-                    .iter()
-                    .map(|&idx| {
-                        row.get(idx)
-                            .map(|v| format!("{:?}", v))
-                            .unwrap_or_else(|| "NULL".to_string())
-                    })
-                    .collect();
-                let key = key_parts.join("||"); // Use || as separator
+                let key = project_key(&row, &left_indices);
                 (key, row)
             });
 
             // Map right collection to (key, row) pairs
+            let right_indices = right_key_indices;
             let right_keyed = right_collection.map(move |row| {
-                let key_parts: Vec<String> = right_key_indices
-                    .iter()
-                    .map(|&idx| {
-                        row.get(idx)
-                            .map(|v| format!("{:?}", v))
-                            .unwrap_or_else(|| "NULL".to_string())
-                    })
-                    .collect();
-                let key = key_parts.join("||");
+                let key = project_key(&row, &right_indices);
                 (key, row)
             });
 
@@ -167,6 +152,19 @@ pub fn translate_query<G: Scope<Timestamp = usize>>(
 
         _ => Err(DataflowError::UnsupportedLogicalPlan(format!("{:?}", plan))),
     }
+}
+
+/// Build a key row by projecting the provided indices from the input row.
+fn project_key(row: &Row, key_indices: &[usize]) -> Row {
+    let mut values = Vec::with_capacity(key_indices.len());
+    for &idx in key_indices {
+        let value = row
+            .get(idx)
+            .cloned()
+            .unwrap_or(ScalarValue::Null);
+        values.push(value);
+    }
+    Row::new(values)
 }
 
 /// Extract join keys from DataFusion's Join representation

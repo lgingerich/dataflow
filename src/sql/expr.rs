@@ -1,4 +1,4 @@
-use crate::sql::Row;
+use crate::sql::{error::DataflowError, Row};
 use datafusion::arrow::array::Scalar;
 use datafusion::arrow::compute::kernels::{cmp, numeric};
 use datafusion::common::{Column, DFSchema, ScalarValue};
@@ -11,7 +11,7 @@ use datafusion::logical_expr::{BinaryExpr, Expr, Operator};
 pub fn compile_expr(
     expr: &Expr,
     schema: &DFSchema,
-) -> Result<Box<dyn Fn(&Row) -> ScalarValue>, String> {
+) -> Result<Box<dyn Fn(&Row) -> ScalarValue>, DataflowError> {
     match expr {
         // Column reference: look up by index in schema
         Expr::Column(col) => compile_column(col, schema),
@@ -25,7 +25,7 @@ pub fn compile_expr(
         // Alias: just compile the inner expression
         Expr::Alias(alias) => compile_expr(&alias.expr, schema),
 
-        _ => Err(format!("Unsupported expression: {:?}", expr)),
+        _ => Err(DataflowError::UnsupportedExpression(format!("{:?}", expr))),
     }
 }
 
@@ -33,10 +33,10 @@ pub fn compile_expr(
 fn compile_column(
     col: &Column,
     schema: &DFSchema,
-) -> Result<Box<dyn Fn(&Row) -> ScalarValue>, String> {
-    let idx = schema
-        .index_of_column(col)
-        .map_err(|e| format!("Column not found: {:?}", e))?;
+) -> Result<Box<dyn Fn(&Row) -> ScalarValue>, DataflowError> {
+    let idx = schema.index_of_column(col).map_err(|e| {
+        DataflowError::ColumnNotFound(format!("{:?}", e))
+    })?;
 
     Ok(Box::new(move |row| {
         row.get(idx).cloned().unwrap_or(ScalarValue::Null)
@@ -53,7 +53,7 @@ fn compile_literal(scalar: &ScalarValue) -> Box<dyn Fn(&Row) -> ScalarValue> {
 fn compile_binary(
     bin: &BinaryExpr,
     schema: &DFSchema,
-) -> Result<Box<dyn Fn(&Row) -> ScalarValue>, String> {
+) -> Result<Box<dyn Fn(&Row) -> ScalarValue>, DataflowError> {
     let left_fn = compile_expr(&bin.left, schema)?;
     let right_fn = compile_expr(&bin.right, schema)?;
     let op = bin.op;
@@ -61,21 +61,25 @@ fn compile_binary(
     Ok(Box::new(move |row| {
         let l = left_fn(row);
         let r = right_fn(row);
-        apply_binary_op(&op, l, r)
+        // Handle errors gracefully by returning Null
+        // In a production system, you might want to log these errors
+        apply_binary_op(&op, l, r).unwrap_or(ScalarValue::Null)
     }))
 }
 
 /// Apply a binary operation to two ScalarValues using Arrow's compute kernels
-fn apply_binary_op(op: &Operator, left: ScalarValue, right: ScalarValue) -> ScalarValue {
+fn apply_binary_op(
+    op: &Operator,
+    left: ScalarValue,
+    right: ScalarValue,
+) -> Result<ScalarValue, DataflowError> {
     // Convert ScalarValues to Arrow arrays
-    let left_array = match left.to_array() {
-        Ok(arr) => arr,
-        Err(e) => panic!("Failed to convert ScalarValue to array: {:?}", e),
-    };
-    let right_array = match right.to_array() {
-        Ok(arr) => arr,
-        Err(e) => panic!("Failed to convert ScalarValue to array: {:?}", e),
-    };
+    let left_array = left.to_array().map_err(|e| {
+        DataflowError::ScalarToArrayConversion(format!("{:?}", e))
+    })?;
+    let right_array = right.to_array().map_err(|e| {
+        DataflowError::ScalarToArrayConversion(format!("{:?}", e))
+    })?;
 
     // Type checking: require exact type match (no automatic coercion)
     //
@@ -84,12 +88,11 @@ fn apply_binary_op(op: &Operator, left: ScalarValue, right: ScalarValue) -> Scal
     // This would allow queries like `SELECT amount + 10` where amount is Float64 and 10 is Int64.
     // For now, we require explicit CAST in SQL: `SELECT amount + CAST(10 AS DOUBLE)`
     if left_array.data_type() != right_array.data_type() {
-        panic!(
-            "Type mismatch in binary operation {:?}: left is {:?}, right is {:?}. Use explicit CAST.",
-            op,
-            left_array.data_type(),
-            right_array.data_type()
-        );
+        return Err(DataflowError::TypeMismatch {
+            op: *op,
+            left: left_array.data_type().clone(),
+            right: right_array.data_type().clone(),
+        });
     }
 
     let left_scalar = Scalar::new(left_array);
@@ -124,28 +127,30 @@ fn apply_binary_op(op: &Operator, left: ScalarValue, right: ScalarValue) -> Scal
         }
 
         // Unsupported operations
-        _ => panic!("Unsupported operation: {:?}", op),
+        _ => return Err(DataflowError::UnsupportedOperation(*op)),
     };
 
     // Convert result back to ScalarValue
-    match result_array {
-        Ok(arr) => ScalarValue::try_from_array(&arr, 0).unwrap_or(ScalarValue::Null),
-        Err(e) => panic!("Failed to convert result array to ScalarValue: {:?}", e),
-    }
+    let arr = result_array.map_err(|e| DataflowError::ArrowComputeError(format!("{:?}", e)))?;
+    Ok(ScalarValue::try_from_array(&arr, 0).unwrap_or(ScalarValue::Null))
 }
 
 /// Handle logical operations (AND, OR) separately
 ///
 /// These operate on booleans and don't go through Arrow's numeric kernels
-fn apply_logical_op(op: &Operator, left: ScalarValue, right: ScalarValue) -> ScalarValue {
+fn apply_logical_op(
+    op: &Operator,
+    left: ScalarValue,
+    right: ScalarValue,
+) -> Result<ScalarValue, DataflowError> {
     match (op, left, right) {
         (Operator::And, ScalarValue::Boolean(Some(a)), ScalarValue::Boolean(Some(b))) => {
-            ScalarValue::Boolean(Some(a && b))
+            Ok(ScalarValue::Boolean(Some(a && b)))
         }
         (Operator::Or, ScalarValue::Boolean(Some(a)), ScalarValue::Boolean(Some(b))) => {
-            ScalarValue::Boolean(Some(a || b))
+            Ok(ScalarValue::Boolean(Some(a || b)))
         }
-        _ => panic!("Unsupported logical operation: {:?}", op),
+        _ => Err(DataflowError::UnsupportedLogicalOperation(*op)),
     }
 }
 

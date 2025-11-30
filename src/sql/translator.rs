@@ -1,4 +1,4 @@
-use crate::sql::{Row, expr::compile_expr};
+use crate::sql::{error::DataflowError, expr::compile_expr, Row};
 use datafusion::logical_expr::LogicalPlan;
 use differential_dataflow::collection::VecCollection;
 use std::collections::HashMap;
@@ -20,7 +20,7 @@ pub fn translate_query<G: Scope<Timestamp = usize>>(
     plan: &LogicalPlan,
     _scope: &G,
     tables: &HashMap<String, VecCollection<G, Row, isize>>,
-) -> Result<VecCollection<G, Row, isize>, String> {
+) -> Result<VecCollection<G, Row, isize>, DataflowError> {
     match plan {
         // TableScan: lookup the table in the provided HashMap
         LogicalPlan::TableScan(scan) => {
@@ -28,7 +28,7 @@ pub fn translate_query<G: Scope<Timestamp = usize>>(
             tables
                 .get(&table_name)
                 .cloned()
-                .ok_or_else(|| format!("Table '{}' not found in provided tables", table_name))
+                .ok_or_else(|| DataflowError::TableNotFound(table_name))
         }
 
         // Projection: compile expressions and map each row
@@ -52,6 +52,6 @@ pub fn translate_query<G: Scope<Timestamp = usize>>(
             }))
         }
 
-        _ => Err(format!("Unsupported logical plan operator: {:?}", plan)),
+        _ => Err(DataflowError::UnsupportedLogicalPlan(format!("{:?}", plan))),
     }
 }

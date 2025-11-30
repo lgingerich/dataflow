@@ -21,7 +21,7 @@ pub fn compile_expr(
 
         // Binary operation: recursively compile and combine
         Expr::BinaryExpr(bin) => compile_binary(bin, schema),
-
+        
         // Alias: just compile the inner expression
         Expr::Alias(alias) => compile_expr(&alias.expr, schema),
 

@@ -1,4 +1,5 @@
 use crate::sql::{error::DataflowError, expr::compile_expr, Row};
+use datafusion::common::ScalarValue;
 use datafusion::logical_expr::LogicalPlan;
 use differential_dataflow::collection::VecCollection;
 use std::collections::HashMap;
@@ -49,6 +50,26 @@ pub fn translate_query<G: Scope<Timestamp = usize>>(
             Ok(input_collection.map(move |row| {
                 let values: Vec<_> = compiled_exprs.iter().map(|f| f(&row)).collect();
                 Row::new(values)
+            }))
+        }
+
+        // Filter: compile predicate expression and filter the input collection
+        LogicalPlan::Filter(filter) => {
+            // Recursively translate the input
+            let input_collection = translate_query(&filter.input, _scope, tables)?;
+            let input_schema = filter.input.schema();
+            
+            // Compile the predicate expression (e.g., amount > 50)
+            let predicate_fn = compile_expr(&filter.predicate, input_schema)?;
+            
+            // Apply filter: keep rows where predicate evaluates to true
+            Ok(input_collection.filter(move |row| {
+                match predicate_fn(row) {
+                    ScalarValue::Boolean(Some(true)) => true,  // Keep row
+                    ScalarValue::Boolean(Some(false)) => false, // Filter out
+                    ScalarValue::Boolean(None) => false,       // NULL = false in SQL
+                    _ => false, // Non-boolean result = error, filter out
+                }
             }))
         }
 

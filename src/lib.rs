@@ -65,4 +65,11 @@
 //!    (Row([Int64(110)]), Time(1), -1)  // Delete (if source changes)
 //! ```
 
-pub mod sql;
+pub mod error;
+pub mod expr;
+pub mod row;
+pub mod translator;
+
+pub use error::{DataflowError, Result};
+pub use row::Row;
+pub use translator::translate_query;

@@ -1,4 +1,4 @@
-use dataflow::sql::{Row, translate_query};
+use dataflow::{Row, translate_query};
 use datafusion::common::ScalarValue;
 use datafusion::prelude::*;
 use differential_dataflow::input::InputSession;

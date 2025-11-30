@@ -1,4 +1,4 @@
-use crate::sql::{Row, error::DataflowError, expr::compile_expr};
+use crate::{error::DataflowError, expr::compile_expr, row::Row};
 use datafusion::common::ScalarValue;
 use datafusion::logical_expr::{Expr, JoinType, LogicalPlan, Operator};
 use differential_dataflow::collection::VecCollection;

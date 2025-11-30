@@ -1,4 +1,4 @@
-use crate::sql::error::DataflowError;
+use crate::error::DataflowError;
 use datafusion::common::ScalarValue;
 use serde::de::{SeqAccess, Visitor};
 use serde::{Deserialize, Serialize, ser::SerializeSeq};

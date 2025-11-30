@@ -1,4 +1,4 @@
-use crate::sql::{Row, error::DataflowError};
+use crate::{error::DataflowError, row::Row};
 use datafusion::arrow::array::Scalar;
 use datafusion::arrow::compute::kernels::{cmp, numeric};
 use datafusion::common::{Column, DFSchema, ScalarValue};

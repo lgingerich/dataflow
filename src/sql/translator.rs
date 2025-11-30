@@ -149,6 +149,14 @@ pub fn translate_query<G: Scope<Timestamp = usize>>(
             }))
         }
 
+        // SubqueryAlias: table aliases like "FROM orders o" or subqueries with aliases
+        // This is just a naming wrapper around the actual plan - we can ignore the alias
+        // and translate the underlying input directly since DataFusion already resolved
+        // all column references during query planning
+        LogicalPlan::SubqueryAlias(alias) => {
+            translate_query(&alias.input, _scope, tables)
+        }
+
         _ => Err(DataflowError::UnsupportedLogicalPlan(format!("{:?}", plan))),
     }
 }

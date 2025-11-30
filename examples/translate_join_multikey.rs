@@ -19,14 +19,14 @@ async fn main() -> datafusion::error::Result<()> {
     ctx.register_csv("orders", "data/orders.csv", CsvReadOptions::new()).await?;
     ctx.register_csv("customers", "data/customers.csv", CsvReadOptions::new()).await?;
 
-    // SQL with multi-column join (using duplicate condition to test multi-key handling)
+    // SQL with multi-column join using table aliases
     // Note: In real scenarios, you'd have different columns like:
-    //   ON orders.tenant_id = customers.tenant_id AND orders.user_id = customers.user_id
+    //   ON o.tenant_id = c.tenant_id AND o.user_id = c.user_id
     let sql = r#"
-        SELECT *
-        FROM orders
-        JOIN customers ON orders.cust_id = customers.id 
-                      AND orders.cust_id = customers.id
+        SELECT o.order_id, o.cust_id, o.amount, c.id as customer_id, c.name
+        FROM orders o
+        JOIN customers c ON o.cust_id = c.id 
+                        AND o.cust_id = c.id
     "#;
     
     let df = ctx.sql(sql).await?;

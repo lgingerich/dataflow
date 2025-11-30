@@ -19,7 +19,9 @@ async fn main() -> datafusion::error::Result<()> {
     ctx.register_csv("customers", "data/customers.csv", CsvReadOptions::new())
         .await?;
 
-    let sql = "SELECT * FROM orders INNER JOIN customers ON orders.cust_id = customers.id";
+    let sql = "SELECT o.order_id, o.cust_id, o.amount, c.id, c.name 
+                FROM orders o 
+                INNER JOIN customers c ON o.cust_id = c.id";
     let df = ctx.sql(sql).await?;
     let logical_plan = df.logical_plan().clone();
 

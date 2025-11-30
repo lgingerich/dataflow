@@ -1,4 +1,4 @@
-use dataflow::sql::{translate_query, Row};
+use dataflow::sql::{Row, translate_query};
 use datafusion::common::ScalarValue;
 use datafusion::prelude::*;
 use differential_dataflow::input::InputSession;
@@ -6,18 +6,20 @@ use std::collections::HashMap;
 
 /// Example: Multi-column join (composite key)
 ///
-/// Demonstrates: SELECT * FROM shipments 
-///               JOIN orders ON shipments.order_id = orders.id 
+/// Demonstrates: SELECT * FROM shipments
+///               JOIN orders ON shipments.order_id = orders.id
 ///                          AND shipments.warehouse = orders.warehouse
 ///
 /// Tests that our join implementation correctly handles multiple join keys
 #[tokio::main]
 async fn main() -> datafusion::error::Result<()> {
     let ctx = SessionContext::new();
-    
+
     // Register dummy tables for schema
-    ctx.register_csv("orders", "data/orders.csv", CsvReadOptions::new()).await?;
-    ctx.register_csv("customers", "data/customers.csv", CsvReadOptions::new()).await?;
+    ctx.register_csv("orders", "data/orders.csv", CsvReadOptions::new())
+        .await?;
+    ctx.register_csv("customers", "data/customers.csv", CsvReadOptions::new())
+        .await?;
 
     // SQL with multi-column join using table aliases
     // Note: In real scenarios, you'd have different columns like:
@@ -28,7 +30,7 @@ async fn main() -> datafusion::error::Result<()> {
         JOIN customers c ON o.cust_id = c.id 
                         AND o.cust_id = c.id
     "#;
-    
+
     let df = ctx.sql(sql).await?;
     let logical_plan = df.logical_plan().clone();
 
@@ -49,8 +51,8 @@ async fn main() -> datafusion::error::Result<()> {
             tables.insert("orders".to_string(), orders_collection);
             tables.insert("customers".to_string(), customers_collection);
 
-            let result = translate_query(&logical_plan, scope, &tables)
-                .expect("Translation failed");
+            let result =
+                translate_query(&logical_plan, scope, &tables).expect("Translation failed");
 
             // Track join results
             // Result has 6 columns: order_id, cust_id, amount, customer_id, name, country
@@ -75,10 +77,12 @@ async fn main() -> datafusion::error::Result<()> {
                     Some(ScalarValue::Utf8(Some(v))) => v.clone(),
                     _ => "?".to_string(),
                 };
-                
+
                 let op = if *diff > 0 { "[+]" } else { "[-]" };
-                println!("{} Time {} | Order({}, cust={}, ${:.1}) ⋈ Customer({}, \"{}\")", 
-                         op, time, order_id, orders_cust_id, amount, customer_id, name);
+                println!(
+                    "{} Time {} | Order({}, cust={}, ${:.1}) ⋈ Customer({}, \"{}\")",
+                    op, time, order_id, orders_cust_id, amount, customer_id, name
+                );
             });
         });
 
@@ -103,7 +107,9 @@ async fn main() -> datafusion::error::Result<()> {
         orders_input.advance_to(1);
         customers_input.advance_to(1);
 
-        for _ in 0..20 { worker.step(); }
+        for _ in 0..20 {
+            worker.step();
+        }
 
         println!("\n--- Loading customers ---");
         // Customers: (id, name, country)
@@ -126,7 +132,9 @@ async fn main() -> datafusion::error::Result<()> {
         customers_input.advance_to(2);
         orders_input.advance_to(2);
 
-        for _ in 0..20 { worker.step(); }
+        for _ in 0..20 {
+            worker.step();
+        }
 
         println!("\n--- Adding order for Alice ---");
         orders_input.insert(Row::new(vec![
@@ -138,7 +146,9 @@ async fn main() -> datafusion::error::Result<()> {
         orders_input.advance_to(3);
         customers_input.advance_to(3);
 
-        for _ in 0..20 { worker.step(); }
+        for _ in 0..20 {
+            worker.step();
+        }
 
         println!("\n╔════════════════════════════════════════════════════════════╗");
         println!("║ Multi-column join completed successfully!                 ║");
@@ -148,4 +158,3 @@ async fn main() -> datafusion::error::Result<()> {
 
     Ok(())
 }
-

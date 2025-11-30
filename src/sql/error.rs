@@ -15,7 +15,9 @@ pub enum DataflowError {
     UnsupportedExpression(String),
 
     /// Type mismatch in binary operation (explicit CAST required)
-    #[error("Type mismatch in binary operation {op:?}: left is {left:?}, right is {right:?}. Use explicit CAST in SQL.")]
+    #[error(
+        "Type mismatch in binary operation {op:?}: left is {left:?}, right is {right:?}. Use explicit CAST in SQL."
+    )]
     TypeMismatch {
         op: Operator,
         left: DataType,
@@ -53,8 +55,13 @@ pub enum DataflowError {
     /// DataFusion error wrapper
     #[error("DataFusion error: {0}")]
     DataFusion(#[from] DataFusionError),
+
+    /// Unsupported ScalarValue type for serialization
+    #[error(
+        "ScalarValue type not supported for serialization: {0}. Add explicit support in SerializableValue enum."
+    )]
+    UnsupportedScalarType(String),
 }
 
 /// Result type alias for convenience
 pub type Result<T> = std::result::Result<T, DataflowError>;
-

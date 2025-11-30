@@ -1,4 +1,4 @@
-use crate::sql::{error::DataflowError, Row};
+use crate::sql::{Row, error::DataflowError};
 use datafusion::arrow::array::Scalar;
 use datafusion::arrow::compute::kernels::{cmp, numeric};
 use datafusion::common::{Column, DFSchema, ScalarValue};
@@ -8,7 +8,7 @@ use datafusion::logical_expr::{BinaryExpr, Expr, Operator};
 ///
 /// This is the "interpreter" that converts DataFusion's AST into executable code.
 /// The closure can be called repeatedly on different rows to evaluate the expression.
-/// 
+///
 /// Returns a closure that returns Result to allow proper error propagation during evaluation.
 pub fn compile_expr(
     expr: &Expr,
@@ -23,7 +23,7 @@ pub fn compile_expr(
 
         // Binary operation: recursively compile and combine
         Expr::BinaryExpr(bin) => compile_binary(bin, schema),
-        
+
         // Alias: just compile the inner expression
         Expr::Alias(alias) => compile_expr(&alias.expr, schema),
 
@@ -36,21 +36,25 @@ fn compile_column(
     col: &Column,
     schema: &DFSchema,
 ) -> Result<Box<dyn Fn(&Row) -> Result<ScalarValue, DataflowError>>, DataflowError> {
-    let idx = schema.index_of_column(col).map_err(|e| {
-        DataflowError::ColumnNotFound(format!("{:?}", e))
-    })?;
+    let idx = schema
+        .index_of_column(col)
+        .map_err(|e| DataflowError::ColumnNotFound(format!("{:?}", e)))?;
 
     Ok(Box::new(move |row| {
-        row.get(idx)
-            .cloned()
-            .ok_or_else(|| DataflowError::ColumnNotFound(
-                format!("Row index {} out of bounds (row has {} columns)", idx, row.len())
+        row.get(idx).cloned().ok_or_else(|| {
+            DataflowError::ColumnNotFound(format!(
+                "Row index {} out of bounds (row has {} columns)",
+                idx,
+                row.len()
             ))
+        })
     }))
 }
 
 /// Compile a literal value
-fn compile_literal(scalar: &ScalarValue) -> Box<dyn Fn(&Row) -> Result<ScalarValue, DataflowError>> {
+fn compile_literal(
+    scalar: &ScalarValue,
+) -> Box<dyn Fn(&Row) -> Result<ScalarValue, DataflowError>> {
     let val = scalar.clone();
     Box::new(move |_row| Ok(val.clone()))
 }
@@ -78,12 +82,12 @@ fn apply_binary_op(
     right: ScalarValue,
 ) -> Result<ScalarValue, DataflowError> {
     // Convert ScalarValues to Arrow arrays
-    let left_array = left.to_array().map_err(|e| {
-        DataflowError::ScalarToArrayConversion(format!("{:?}", e))
-    })?;
-    let right_array = right.to_array().map_err(|e| {
-        DataflowError::ScalarToArrayConversion(format!("{:?}", e))
-    })?;
+    let left_array = left
+        .to_array()
+        .map_err(|e| DataflowError::ScalarToArrayConversion(format!("{:?}", e)))?;
+    let right_array = right
+        .to_array()
+        .map_err(|e| DataflowError::ScalarToArrayConversion(format!("{:?}", e)))?;
 
     // Require exact type match (i.e. no automatic coercion)
     // TODO: Implement automatic type coercion
@@ -252,7 +256,7 @@ mod tests {
             ScalarValue::Int64(Some(1)),
             ScalarValue::Int64(Some(100)),
         ]);
-        
+
         // Should return an error, not NULL
         let result = compiled(&row);
         assert!(result.is_err());
@@ -267,7 +271,7 @@ mod tests {
 
         // Row has only 1 column, but we're trying to access column index 1 (amount)
         let row = Row::new(vec![ScalarValue::Int64(Some(1))]);
-        
+
         // Should return an error, not NULL
         let result = compiled(&row);
         assert!(result.is_err());

@@ -36,8 +36,8 @@ async fn main() -> datafusion::error::Result<()> {
             let mut tables = HashMap::new();
             tables.insert("orders".to_string(), orders_collection);
 
-            let result = translate_query(&logical_plan, scope, &tables)
-                .expect("Translation failed");
+            let result =
+                translate_query(&logical_plan, scope, &tables).expect("Translation failed");
 
             result.inspect(|(row, time, diff)| {
                 // Helper to extract value from ScalarValue
@@ -121,4 +121,3 @@ async fn main() -> datafusion::error::Result<()> {
 
     Ok(())
 }
-

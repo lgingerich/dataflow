@@ -1,13 +1,13 @@
 use crate::sql::error::DataflowError;
 use datafusion::common::ScalarValue;
-use serde::{ser::SerializeSeq, Deserialize, Serialize};
+use serde::de::{SeqAccess, Visitor};
+use serde::{Deserialize, Serialize, ser::SerializeSeq};
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::Index;
 use std::sync::Arc;
-use serde::de::{SeqAccess, Visitor};
 
 /// Canonical row container used inside Timely/Differential operators.
 ///
@@ -71,7 +71,6 @@ impl Row {
     }
 }
 
-
 impl Serialize for Row {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -79,8 +78,7 @@ impl Serialize for Row {
     {
         let mut seq = serializer.serialize_seq(Some(self.data.len()))?;
         for v in self.data.iter() {
-            let sv = SerializableValue::try_from(v)
-                .map_err(serde::ser::Error::custom)?;
+            let sv = SerializableValue::try_from(v).map_err(serde::ser::Error::custom)?;
             seq.serialize_element(&sv)?;
         }
         seq.end()
@@ -103,11 +101,9 @@ impl<'de> Deserialize<'de> for Row {
             where
                 A: SeqAccess<'de>,
             {
-                let mut out: Vec<ScalarValue> =
-                    Vec::with_capacity(seq.size_hint().unwrap_or(0));
+                let mut out: Vec<ScalarValue> = Vec::with_capacity(seq.size_hint().unwrap_or(0));
                 while let Some(sv) = seq.next_element::<SerializableValue>()? {
-                    out.push(ScalarValue::try_from(sv)
-                        .map_err(serde::de::Error::custom)?);
+                    out.push(ScalarValue::try_from(sv).map_err(serde::de::Error::custom)?);
                 }
                 Ok(Row { data: out.into() })
             }
@@ -520,14 +516,14 @@ impl TryFrom<SerializableValue> for ScalarValue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
     use proptest::{
         collection::vec as prop_vec,
         option::of as prop_option_of,
         prelude::*,
         strategy::{BoxedStrategy, Strategy},
     };
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
 
     const MAX_TEXT_LEN: usize = 8;
     const MAX_LARGE_TEXT_LEN: usize = 16;
@@ -568,8 +564,11 @@ mod tests {
             prop_option_of(any::<u64>()).prop_map(ScalarValue::UInt64),
             prop_option_of(any::<f32>()).prop_map(ScalarValue::Float32),
             prop_option_of(any::<f64>()).prop_map(ScalarValue::Float64),
-            prop_option_of(any::<i128>())
-                .prop_map(|v| ScalarValue::Decimal128(v, DEFAULT_DECIMAL_PRECISION, DEFAULT_DECIMAL_SCALE)),
+            prop_option_of(any::<i128>()).prop_map(|v| ScalarValue::Decimal128(
+                v,
+                DEFAULT_DECIMAL_PRECISION,
+                DEFAULT_DECIMAL_SCALE
+            )),
             option_string_strategy(MAX_TEXT_LEN).prop_map(ScalarValue::Utf8),
             option_string_strategy(MAX_LARGE_TEXT_LEN).prop_map(ScalarValue::LargeUtf8),
             option_binary_strategy(MAX_BINARY_LEN).prop_map(ScalarValue::Binary),

@@ -89,14 +89,6 @@ pub fn translate_query<G: Scope<Timestamp = usize>>(
 
         // Join: combine two tables based on join condition
         LogicalPlan::Join(join) => {
-            // Only support INNER JOIN for now
-            if !matches!(join.join_type, JoinType::Inner) {
-                return Err(DataflowError::UnsupportedLogicalPlan(format!(
-                    "Only INNER JOIN is currently supported, got: {:?}",
-                    join.join_type
-                )));
-            }
-
             // Recursively translate both input plans
             let left_collection = translate_query(&join.left, _scope, tables)?;
             let right_collection = translate_query(&join.right, _scope, tables)?;
@@ -123,17 +115,122 @@ pub fn translate_query<G: Scope<Timestamp = usize>>(
                 (key, row)
             });
 
-            // Perform the join using Differential Dataflow's join operator
-            // The join produces (key, (left_row, right_row)) tuples
-            // We map them back to combined rows
-            Ok(left_keyed
-                .join(&right_keyed)
-                .map(|(_key, (left_row, right_row))| {
-                    // Combine left and right rows by concatenating their values
-                    let mut combined_values = left_row.as_slice().to_vec();
-                    combined_values.extend_from_slice(right_row.as_slice());
-                    Row::new(combined_values)
-                }))
+            match join.join_type {
+                JoinType::Inner => {
+                    Ok(left_keyed
+                        .join(&right_keyed)
+                        .map(|(_key, (left_row, right_row))| {
+                            // Combine left and right rows by concatenating their values
+                            let mut combined = left_row.as_slice().to_vec();
+                            combined.extend_from_slice(right_row.as_slice());
+                            Row::new(combined)
+                        }))
+                }
+                JoinType::Left => {
+                    let matched = left_keyed.clone()
+                        .join(&right_keyed.clone())
+                        .map(|(_key, (left_row, right_row))| {
+                            let mut combined = left_row.as_slice().to_vec();
+                            combined.extend_from_slice(right_row.as_slice());
+                            Row::new(combined)
+                        });
+
+                    let right_keys = right_keyed.map(|(key, _)| key);
+                    let right_nulls = vec![ScalarValue::Null; right_schema.fields().len()];
+
+                    let unmatched = left_keyed
+                        .antijoin(&right_keys)
+                        .map({
+                            let right_nulls = right_nulls.clone();
+                            move |(_key, left_row)| {
+                                let mut combined = left_row.as_slice().to_vec();
+                                combined.extend(right_nulls.iter().cloned());
+                                Row::new(combined)
+                            }
+                        });
+
+                    // Combine matched and unmatched rows
+                    Ok(matched.concat(&unmatched))
+                    
+                }
+                JoinType::Right => {
+                    let matched = left_keyed.clone()
+                        .join(&right_keyed.clone())
+                        .map(|(_key, (left_row, right_row))| {
+                            let mut combined = left_row.as_slice().to_vec();
+                            combined.extend_from_slice(right_row.as_slice());
+                            Row::new(combined)
+                        });
+
+                    let left_keys = left_keyed.map(|(key, _)| key);
+                    let left_nulls = vec![ScalarValue::Null; left_schema.fields().len()];
+
+                    let unmatched = right_keyed
+                        .antijoin(&left_keys)
+                        .map({
+                            let left_nulls = left_nulls.clone();
+                            move |(_key, right_row)| {
+                                let mut combined = Vec::with_capacity(
+                                    left_nulls.len() + right_row.as_slice().len(),
+                                );
+                                combined.extend(left_nulls.iter().cloned());
+                                combined.extend_from_slice(right_row.as_slice());
+                                Row::new(combined)
+                            }
+                        });
+
+                    Ok(matched.concat(&unmatched))
+                }
+                JoinType::Full => {
+                    let matched = left_keyed.clone()
+                        .join(&right_keyed.clone())
+                        .map(|(_key, (left_row, right_row))| {
+                            let mut combined = left_row.as_slice().to_vec();
+                            combined.extend_from_slice(right_row.as_slice());
+                            Row::new(combined)
+                        });
+
+                    let right_keys = right_keyed.clone().map(|(key, _)| key);
+                    let right_nulls = vec![ScalarValue::Null; right_schema.fields().len()];
+                    let left_unmatched = left_keyed.clone()
+                        .antijoin(&right_keys)
+                        .map({
+                            let right_nulls = right_nulls.clone();
+                            move |(_key, left_row)| {
+                                let mut combined = left_row.as_slice().to_vec();
+                                combined.extend(right_nulls.iter().cloned());
+                                Row::new(combined)
+                            }
+                        });
+
+                    let left_keys = left_keyed.map(|(key, _)| key);
+                    let left_nulls = vec![ScalarValue::Null; left_schema.fields().len()];
+                    let right_unmatched = right_keyed
+                        .antijoin(&left_keys)
+                        .map({
+                            let left_nulls = left_nulls.clone();
+                            move |(_key, right_row)| {
+                                let mut combined = Vec::with_capacity(
+                                    left_nulls.len() + right_row.as_slice().len(),
+                                );
+                                combined.extend(left_nulls.iter().cloned());
+                                combined.extend_from_slice(right_row.as_slice());
+                                Row::new(combined)
+                            }
+                        });
+
+                    Ok(matched.concat(&left_unmatched).concat(&right_unmatched))
+                }
+                // Not planned to support the following join types:
+                JoinType::LeftSemi
+                | JoinType::RightSemi
+                | JoinType::LeftAnti
+                | JoinType::RightAnti
+                | JoinType::LeftMark
+                | JoinType::RightMark => Err(DataflowError::UnsupportedLogicalPlan(
+                    format!("join type {:?} is not supported", join.join_type),
+                )),
+            }
         }
 
         // SubqueryAlias: table aliases like "FROM orders o" or subqueries with aliases

@@ -76,7 +76,7 @@ fn compile_binary(
 }
 
 /// Apply a binary operation to two ScalarValues using Arrow's compute kernels
-fn apply_binary_op(
+pub fn apply_binary_op(
     op: &Operator,
     left: ScalarValue,
     right: ScalarValue,

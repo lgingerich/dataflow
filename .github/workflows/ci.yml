@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Debug info is most of a dependency's build output, and the cache restores all of it on
+# every run, so CI builds without it. A test panic still names its file and line.
+env:
+  CARGO_PROFILE_DEV_DEBUG: 0
+
+jobs:
+  check:
+    # Pinned so a runner image change is a deliberate bump, not a surprise.
+    runs-on: ubuntu-24.04
+    env:
+      # Lints are mostly `warn` so local builds keep going; CI fails on any warning,
+      # including Cargo's own lints, which `-D warnings` does not reach.
+      CARGO_BUILD_WARNINGS: deny
+      RUSTDOCFLAGS: -D warnings
+      # kache is a local-only build cache; CI uses rust-cache instead.
+      RUSTC_WRAPPER: ""
+    steps:
+      - uses: actions/checkout@v7
+      # Installs the toolchain and components pinned in rust-toolchain.toml.
+      - run: rustup toolchain install
+      # Saved from `main` only: pull requests restore `main`'s cache without evicting it.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@nextest
+      # Each `.rs` file directly in a crate's `tests/` is a separate test binary.
+      # Integration tests belong in `tests/<name>/main.rs` (see AGENTS.md).
+      - name: Integration tests are grouped
+        run: |
+          stray=$(find . -path ./target -prune -o -name Cargo.toml -print | while read -r manifest; do
+            ls "$(dirname "$manifest")"/tests/*.rs 2>/dev/null || true
+          done)
+          if [ -n "$stray" ]; then
+            echo "$stray"
+            echo "Move these into tests/<name>/ as modules of its main.rs"
+            exit 1
+          fi
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets --all-features -- -D warnings
+      - run: cargo doc --locked --no-deps --all-features
+      - run: cargo test --locked --doc
+      - run: cargo nextest run --locked --all-targets --all-features --no-tests pass

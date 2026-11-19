@@ -14,8 +14,12 @@ debug-assertions = false
 incremental = false
 opt-level = 3
 lto = true
-panic = "abort"
 strip = "debuginfo"
+
+[profile.release-profiling]
+inherits = "release"
+debug = "line-tables-only"
+strip = "none"
 
 [profile.dev]
 codegen-units = 256
@@ -26,6 +30,59 @@ opt-level = 0
 lto = false
 panic = "unwind"
 strip = false
+
+# Dependencies build without debug info: about 20% smaller debug builds at no build-time
+# cost. This workspace's own crates keep full debug info for backtraces and debuggers.
+[profile.dev.package."*"]
+debug = false
+
+[lints.rust]
+# Levels: `deny` fails every build, for code that is unsound or definitely wrong.
+# `warn` lets local builds continue; CI sets CARGO_BUILD_WARNINGS=deny, so every
+# warning must be fixed before merge.
+
+# === Deny: unsound or definitely wrong ===
+ambiguous_negative_literals     = "deny"
+unreachable_patterns            = "deny"
+unsafe_code                     = "deny"
+unsafe_op_in_unsafe_fn          = "deny"
+
+# === Likely bugs ===
+deprecated_in_future            = "warn"
+let_underscore_drop             = "warn"
+unexpected_cfgs                 = "warn"
+unit_bindings                   = "warn"
+
+# === Unused code ===
+dead_code                       = "warn"
+redundant_imports               = "warn"
+redundant_lifetimes             = "warn"
+unreachable_code                = "warn"
+unused_assignments              = "warn"
+unused_import_braces            = "warn"
+unused_imports                  = "warn"
+unused_lifetimes                = "warn"
+unused_macro_rules              = "warn"
+unused_macros                   = "warn"
+unused_mut                      = "warn"
+unused_qualifications           = "warn"
+unused_variables                = "warn"
+
+# === Public API and docs ===
+missing_debug_implementations   = "warn"
+missing_docs                    = "warn"
+unnameable_types                = "warn"
+unreachable_pub                 = "warn"
+
+# === Clarity ===
+elided_lifetimes_in_paths       = "warn"
+explicit_outlives_requirements  = "warn"
+impl_trait_redundant_captures   = "warn"
+trivial_casts                   = "warn"
+trivial_numeric_casts           = "warn"
+
+[lints.cargo]
+unused_dependencies             = "warn"
 
 [dependencies]
 arrow = "57.1.0"
@@ -43,17 +100,143 @@ serde_json = "1.0"
 proptest = "1.5.0"
 
 [lints.clippy]
-type_complexity = "allow"
-redundant_clone = "warn"
-unnecessary_to_owned = "warn"
-inefficient_to_string = "warn"
-large_enum_variant = "warn"
-box_collection = "warn"
-or_fun_call = "warn"
-expect_fun_call = "warn"
-single_char_pattern = "warn"
-string_add_assign = "warn"
-vec_init_then_push = "warn"
-expect_used = "deny"
-unwrap_used = "deny"
-cognitive_complexity = "warn"
+pedantic                        = { level = "warn", priority = -2 }
+type_complexity                 = "allow"
+
+# === Deny: unsafe code and pointers ===
+as_ptr_cast_mut                 = "deny"
+borrow_as_ptr                   = "deny"
+cast_ptr_alignment              = "deny"
+mem_forget                      = "deny"
+multiple_unsafe_ops_per_block   = "deny"
+non_send_fields_in_send_ty      = "deny"
+not_unsafe_ptr_arg_deref        = "deny"
+ptr_as_ptr                      = "deny"
+ptr_cast_constness              = "deny"
+ref_as_ptr                      = "deny"
+trailing_empty_array            = "deny"
+transmute_ptr_to_ptr            = "deny"
+transmute_undefined_repr        = "deny"
+undocumented_unsafe_blocks      = "deny"
+uninhabited_references          = "deny"
+uninit_vec                      = "deny"
+unnecessary_safety_comment      = "deny"
+unnecessary_safety_doc          = "deny"
+
+# === Deny: definite bugs ===
+coerce_container_to_any         = "deny"
+debug_assert_with_mut_call      = "deny"
+drop_non_drop                   = "deny"
+fn_to_numeric_cast_any          = "deny"
+lossy_float_literal             = "deny"
+mixed_read_write_in_expression  = "deny"
+path_buf_push_overwrite         = "deny"
+read_zero_byte_vec              = "deny"
+suspicious_xor_used_as_pow      = "deny"
+
+# === Likely bugs ===
+arc_with_non_send_sync          = "warn"
+cfg_not_test                    = "warn"
+collection_is_never_read        = "warn"
+fallible_impl_from              = "warn"
+if_same_then_else               = "warn"
+infinite_loop                   = "warn"
+map_err_ignore                  = "warn"
+redundant_locals                = "warn"
+significant_drop_in_scrutinee   = "warn"
+unused_peekable                 = "warn"
+unused_result_ok                = "warn"
+while_float                     = "warn"
+
+# === Panics and leftovers ===
+dbg_macro                       = "warn"
+exit                            = "warn"
+expect_used                     = "warn"
+print_stderr                    = "warn"
+print_stdout                    = "warn"
+todo                            = "warn"
+unimplemented                   = "warn"
+unwrap_used                     = "warn"
+
+# === Performance ===
+assigning_clones                = "warn"
+box_collection                  = "warn"
+boxed_local                     = "warn"
+clear_with_drain                = "warn"
+expect_fun_call                 = "warn"
+format_collect                  = "warn"
+implicit_clone                  = "warn"
+inefficient_to_string           = "warn"
+iter_overeager_cloned           = "warn"
+iter_with_drain                 = "warn"
+large_enum_variant              = "warn"
+large_futures                   = "warn"
+large_include_file              = "warn"
+large_stack_frames              = "warn"
+large_types_passed_by_value     = "warn"
+manual_memcpy                   = "warn"
+map_clone                       = "warn"
+needless_collect                = "warn"
+needless_pass_by_ref_mut        = "warn"
+needless_pass_by_value          = "warn"
+or_fun_call                     = "warn"
+pathbuf_init_then_push          = "warn"
+rc_mutex                        = "warn"
+redundant_clone                 = "warn"
+set_contains_or_insert          = "warn"
+single_char_pattern             = "warn"
+string_lit_chars_any            = "warn"
+trivial_regex                   = "warn"
+trivially_copy_pass_by_ref      = "warn"
+unnecessary_lazy_evaluations    = "warn"
+unnecessary_to_owned            = "warn"
+vec_box                         = "warn"
+vec_init_then_push              = "warn"
+verbose_file_reads              = "warn"
+
+# === Clarity ===
+allow_attributes                = "warn"
+allow_attributes_without_reason = "warn"
+as_underscore                   = "warn"
+assertions_on_result_states     = "warn"
+clone_on_copy                   = "warn"
+clone_on_ref_ptr                = "warn"
+cognitive_complexity            = "warn"
+derivable_impls                 = "warn"
+derive_partial_eq_without_eq    = "warn"
+empty_drop                      = "warn"
+empty_enum_variants_with_brackets= "warn"
+empty_structs_with_brackets     = "warn"
+implicit_saturating_sub         = "warn"
+manual_c_str_literals           = "warn"
+manual_swap                     = "warn"
+mem_replace_option_with_none    = "warn"
+needless_raw_strings            = "warn"
+needless_type_cast              = "warn"
+non_zero_suggestions            = "warn"
+precedence                      = "warn"
+precedence_bits                 = "warn"
+ptr_eq                          = "warn"
+redundant_type_annotations      = "warn"
+renamed_function_params         = "warn"
+rest_pat_in_fully_bound_structs = "warn"
+shadow_unrelated                = "warn"
+string_add_assign               = "warn"
+tests_outside_test_module       = "warn"
+trait_duplication_in_bounds     = "warn"
+try_err                         = "warn"
+type_repetition_in_bounds       = "warn"
+uninlined_format_args           = "warn"
+unnecessary_self_imports        = "warn"
+unnecessary_struct_initialization= "warn"
+unnecessary_unwrap              = "warn"
+unused_rounding                 = "warn"
+use_self                        = "warn"
+used_underscore_binding         = "warn"
+useless_conversion              = "warn"
+useless_let_if_seq              = "warn"
+
+# === Cargo.toml manifest ===
+negative_feature_names          = "warn"
+redundant_feature_names         = "warn"
+wildcard_dependencies           = "warn"

@@ -1,0 +1,10 @@
+[env]
+RUST_BACKTRACE = "0"
+
+[build]
+rustc-wrapper = "kache"
+
+# Skip crate versions published in the last 3 days. Bypass once with
+# CARGO_RESOLVER_INCOMPATIBLE_PUBLISH_AGE=allow.
+[registry]
+global-min-publish-age = "3 days"

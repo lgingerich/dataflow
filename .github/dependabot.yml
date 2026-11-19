@@ -1,0 +1,13 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    # Matches `registry.global-min-publish-age` in .cargo/config.toml.
+    cooldown:
+      default-days: 3
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

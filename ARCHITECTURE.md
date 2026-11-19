@@ -22,6 +22,6 @@ Keep this file short (~1 page). Project-specific invariants live here; universal
 - `translate_query` is generic over `Scope<Timestamp = usize>` and takes tables as `HashMap<String, VecCollection<G, Row, isize>>`; a missing table is `DataflowError::TableNotFound`.
 
 ## Forbidden Patterns / Dependencies
-- `unwrap_used` and `expect_used` are `deny` in `Cargo.toml` (tests may use them via `clippy.toml`); use `DataflowError`.
+- `unwrap_used` and `expect_used` are linted in `Cargo.toml` and CI denies warnings (tests may use them via `clippy.toml`); use `DataflowError`.
 - Integration tests: HEAD has no `tests/` directory; runnable demos live in `examples/` (`translate_*.rs`, `sql_*.rs`, `df_join.rs`) and read CSVs from `data/`.
 - Otherwise none beyond `AGENTS.md`.

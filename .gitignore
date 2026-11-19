@@ -1,1 +1,14 @@
 /target
+# Cargo build output (keep Cargo.lock tracked)
+target/
+# Local environment files; keep a shareable example
+.env
+.env.*
+!.env.example
+# Rust tooling artifacts
+*.rs.bk
+*.pdb
+rustc-ice-*.txt
+mutants.out*/
+# macOS metadata
+.DS_Store
